@@ -59,7 +59,7 @@ function selectClient(client){
 }
 
 function onClientSelect(client){
-    workspace.activeClient = client;
+    KWinComponents.Workspace.activeWindow = client;
 
     if (trackSnappedWindows) {
         removeWindowFromTrack(client.internalId); /// remove from track if was previously snapped
@@ -76,6 +76,7 @@ function addListenersToClient(client) {
 
     client.frameGeometryChanged.connect(function() {
         if (!client.move && !client.resize && activated == false && preventFromShowing == false) {
+            console.error("addListenersToClient -> frameGeometryChanged")
             if (delayBeforeShowingAssist == 0) {
                 onWindowResize(client);
             } else {
@@ -86,37 +87,35 @@ function addListenersToClient(client) {
         }
     });
 
-    client.clientStartUserMovedResized.connect(function(cl){
+    client.interactiveMoveResizeStarted.connect(function(){
         if (trackSnappedWindows && !client.resize)
-            removeWindowFromTrack(cl.internalId, function(group){
-                if (fillOnSnappedMove) fillClosedWindow(cl, group);
+            removeWindowFromTrack(client.internalId, function(group){
+                if (fillOnSnappedMove) fillClosedWindow(client, group);
             });
 
         if (rememberWindowSizes){
-            const storedSize = windowSizesBeforeSnap[cl.internalId];
+            const storedSize = windowSizesBeforeSnap[client.internalId];
             if (storedSize) {
-                cl.frameGeometry.height = windowSizesBeforeSnap[cl.internalId].height ?? cl.height;
-                cl.frameGeometry.width = windowSizesBeforeSnap[cl.internalId].width ?? cl.width;
-                delete windowSizesBeforeSnap[cl.internalId];
+                client.frameGeometry.height = windowSizesBeforeSnap[client.internalId].height ?? client.height;
+                client.frameGeometry.width = windowSizesBeforeSnap[client.internalId].width ?? client.width;
+                delete windowSizesBeforeSnap[client.internalId];
             }
         }
     });
 
-    client.windowClosed.connect(function(window){
+    client.closed.connect(function(window){
         handleWindowClose(client);
     });
 
-    client.desktopChanged.connect(function(){
+    client.desktopsChanged.connect(function(){
         if (trackSnappedWindows && !client.resize) removeWindowFromTrack(client.internalId);
     });
 
-    client.clientMinimized.connect(function(c){
-            if (!trackSnappedWindows || !minimizeSnappedTogether) return;
+    client.minimizedChanged.connect(function (cl) {
+        if (!trackSnappedWindows || !minimizeSnappedTogether) return;
+        if (cl.minimized) {
             WindowManager.applyActionToAssosiatedSnapGroup(client, function(cl){ if (cl) cl.minimized = true; });
-    });
-
-    client.clientUnminimized.connect(function(c){
-            if (!trackSnappedWindows || !minimizeSnappedTogether) return;
+        } else {
             WindowManager.applyActionToAssosiatedSnapGroup(client, function(cl) {
                 if (cl) {
                     cl.minimized = false;
@@ -126,17 +125,33 @@ function addListenersToClient(client) {
                     }
                 }
             });
+        }
     });
+
+    // client.minimizedChanged.connect(function(c){
+    //         if (!trackSnappedWindows || !minimizeSnappedTogether) return;
+    //         WindowManager.applyActionToAssosiatedSnapGroup(client, function(cl) {
+    //             if (cl) {
+    //                 cl.minimized = false;
+    //                 if (trackActiveWindows) {
+    //                     const d = new Date();
+    //                     activationTime[cl.internalId] = d.getTime();
+    //                 }
+    //             }
+    //         });
+    // });
 }
 
 function onWindowResize(window) {
+    console.error("console.error", window)
+    // print("print", window)
     if (activated || !window || window.deleted || window.specialWindow || !window.active) return;
     AssistManager.finishSnap(false); /// make sure we cleared all variables
 
     /// don't show assist if window could be fit in the group behind
     if (fitWindowInGroupBehind && windowFitsInSnapGroup(window)) return;
-
-    const maxArea = workspace.clientArea(KWin.MaximizeArea, window);
+    const maxArea = KWinComponents.Workspace.clientArea(KWin.MaximizeArea, window);
+    console.error(maxArea.x,maxArea.y,maxArea.width,maxArea.height)
     currentScreenWidth = maxArea.width; currentScreenHeight = maxArea.height;
     minDx = maxArea.x; minDy = maxArea.y;
     const dx = window.x, dy = window.y;
@@ -273,11 +288,11 @@ function handleWindowFocus(window) {
             for(let i = 0; i < l; i++) {
                 if (windows[i] !== window.internalId) {
                     const w = getClientFromId(windows[i]);
-                    if (w && !w.minimized) workspace.activeClient = w;
+                    if (w && !w.minimized) KWinComponents.Workspace.activeWindow = w;
                 }
             }
 
-            workspace.activeClient = window;
+            KWinComponents.Workspace.activeWindow = window;
             timer.setTimeout(function(){
                 ignoreFocusChange = false;
             }, 100);
@@ -383,11 +398,11 @@ function windowFitsInSnapGroup(client){
 
     /// find last active client
     let lastActiveWindowId = -1, lastActiveTime = -1;
-    const activeClientId = workspace.activeClient ? workspace.activeClient.internalId : null;
+    const activeClientId = KWinComponents.Workspace.activeWindow ? KWinComponents.Workspace.activeWindow.internalId : null;
     Object.keys(activationTime).forEach(function(key) {
         if(activationTime[key] > lastActiveTime && key != client.internalId && key != activeClientId) {
             const c = getClientFromId(key);
-            if (c && !c.minimized && c.screen == workspace.activeScreen && c.desktop == workspace.currentDesktop) {
+            if (c && !c.minimized && c.output == KWinComponents.Workspace.activeScreen && !c.desktops.length || c.desktops.includes(KWinComponents.Workspace.currentDesktop)) {
                 lastActiveWindowId = c.internalId;
                 lastActiveTime = activationTime[key];
             }
@@ -457,7 +472,7 @@ function isEqual(a, b) {
 
 function getClientFromId(windowId){
     //return workspace.getClient(windowId); /// doesn't work on Wayland
-    if (!allClients) allClients = Object.values(workspace.clients);
+    if (!allClients) allClients = Object.values(KWinComponents.Workspace.windows);
     return allClients.find((el) => el.internalId == windowId);
 }
 
@@ -465,10 +480,10 @@ function shouldShowWindow(client) {
     if (filteredClients.includes(client)) return false;
     if (client.active || client.specialWindow) return false;
     if (!showMinimizedWindows && client.minimized) return false;
-    if (!showOtherScreensWindows && client.screen !== workspace.activeScreen) return false;
-    if (!showOtherDesktopsWindows && client.desktop !== workspace.currentDesktop) return false;
+    if (!showOtherScreensWindows && client.output !== KWinComponents.Workspace.activeScreen) return false;
+    if (!showOtherDesktopsWindows && !client.desktops.length || !client.desktops.includes(KWinComponents.Workspace.currentDesktop)) return false;
     if (!showSnappedWindows && snappedWindowGroups.findIndex(group => group.windows.includes(client.internalId) && group.windows.length > 1) > -1) return false;
-    if (client.activities.length > 0 && !client.activities.includes(workspace.currentActivity)) return false;
+    if (client.activities.length > 0 && !client.activities.includes(KWinComponents.Workspace.currentActivity)) return false;
     return true;
 }
 

@@ -1,0 +1,23 @@
+{
+    "KPackageStructure": "KWin/Script",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Email": "maximtsyba@gmail.com",
+                "Name": "emvaized"
+            }
+        ],
+        "BugReportUrl": "https://github.com/emvaized/kde-snap-assist/issues",
+        "Description": "KWin script which suggests other window thumbnails on snap",
+        "EnabledByDefault": true,
+        "Id": "kdesnapassist2",
+        "License": "GPL",
+        "Name": "KDE Snap Assist 2",
+        "Icon": "preferences-system-windows-effect-presentwindows",
+        "Version": "2.0-dev",
+        "Website": "https://github.com/emvaized/kde-snap-assist"
+    },
+    "X-Plasma-API": "declarativescript",
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "X-KDE-ConfigModule": "kwin/effects/configs/kcm_kwin4_genericscripted"
+}

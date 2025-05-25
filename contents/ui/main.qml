@@ -5,14 +5,15 @@
 /// - restore previous size on un-snapping of programatically snapped window
 /// - create task switcher widget which will visually show windows tiled using this assist, allowing to minimize/restore them at once (not possible yet)
 
-import QtQuick 2.12
-import QtQuick.Window 2.12
-import QtQuick.Controls 2.12
-import org.kde.kwin 2.0 as KWinComponents
-import org.kde.plasma.core 2.0 as PlasmaCore
-import QtQml.Models 2.2
-import org.kde.plasma.components 3.0 as PlasmaComponents
-import QtGraphicalEffects 1.12
+import QtQuick
+import QtQuick.Window
+import QtQuick.Controls
+import org.kde.kirigami as Kirigami
+import org.kde.kwin as KWinComponents
+import org.kde.plasma.core as PlasmaCore
+import QtQml.Models
+import org.kde.plasma.components as PlasmaComponents
+import Qt5Compat.GraphicalEffects
 
 import "components"
 import "./code/assist.js" as AssistManager
@@ -23,11 +24,11 @@ Window {
     id: main
     flags: Qt.FramelessWindowHint | Qt.X11BypassWindowManagerHint
     visible: true
-    color: "transparent"
+    color: "#50ff0000"
     x: 0
     y: 0
-    height: currentScreenHeight
-    width: currentScreenWidth
+    height: 1080//currentScreenHeight
+    width: 1920//currentScreenWidth
 
     /// service variables
     property bool activated: false
@@ -98,18 +99,19 @@ Window {
     property double opacityForMinimized
 
     Connections {
-        target: workspace
-        function onClientActivated(window) {
+        target: KWinComponents.Workspace
+        function onWindowActivated(window) {
             if (!window) return;
             WindowManager.handleWindowFocus(window);
         }
-        function onClientAdded(window) {
+        function onWindowAdded(window) {
             WindowManager.addListenersToClient(window);
         }
-        function onClientFullScreenSet(client, isFullScreen, isUser) {
-            /// we likely don't want assist to be shown when user exited fullscreen mode
-            if (isFullScreen == false) AssistManager.preventAssistFromShowing();
-        }
+        // TODO connect to windows
+        // function onClientFullScreenSet(client, isFullScreen, isUser) {
+        //     /// we likely don't want assist to be shown when user exited fullscreen mode
+        //     if (isFullScreen == false) AssistManager.preventAssistFromShowing();
+        // }
         function onVirtualScreenSizeChanged(){
             /// Fix for assist getting shown when screen size changed
             AssistManager.preventAssistFromShowing(1000, () => AssistManager.hideAssist(false));
@@ -119,13 +121,13 @@ Window {
     /// Doesn't work for some reason :(
     /// hence the recommendation to re-enable the script on configs page
     Connections {
-        target: options
+        target: KWinComponents.Options
         function onConfigChanged() { loadConfigs(); }
     }
 
     Component.onCompleted: {
         loadConfigs();
-        const windows = workspace.clients;
+        const windows = KWinComponents.Workspace.windows;
         for (let i = 0; i < windows.length; ++i) {
             WindowManager.addListenersToClient(windows[i]);
         }
@@ -147,7 +149,7 @@ Window {
             width: currentScreenWidth
             visible: showDesktopBackground && activated
 
-            KWinComponents.ThumbnailItem {
+            KWinComponents.WindowThumbnail {
                 wId: desktopWindowId
                 id: desktopBackground
                 anchors.fill: parent
@@ -252,7 +254,7 @@ Window {
                                         color: "transparent"
                                     }
 
-                                    PlasmaCore.IconItem {
+                                    Kirigami.Icon {
                                         id: icon
                                         height: 12 // PlasmaCore.Units.iconSizes.medium?
                                         width: 12
@@ -269,7 +271,7 @@ Window {
                                 }
 
                                 /// window thumbnail
-                                KWinComponents.ThumbnailItem {
+                                KWinComponents.WindowThumbnail {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     id: clientThumbnail
                                     wId: modelData.internalId
@@ -343,7 +345,7 @@ Window {
         enabled: immersiveMode
         model: visibleWindowPreviews
 
-        KWinComponents.ThumbnailItem {
+        KWinComponents.WindowThumbnail {
             wId: modelData.internalId
             clip: true
             visible: !modelData.minimized
@@ -369,7 +371,7 @@ Window {
             x: 0
             y: 0
 
-            KWinComponents.ThumbnailItem {
+            KWinComponents.WindowThumbnail {
                 wId: currentWindowId
                 anchors.fill: parent
             }
@@ -382,7 +384,7 @@ Window {
         enabled: immersiveMode
         model: notificationPreviews
 
-        KWinComponents.ThumbnailItem {
+        KWinComponents.WindowThumbnail {
             wId: modelData.internalId
             clip: true
             visible: true

@@ -1,15 +1,15 @@
 /// assist
 function delayedShowAssist(dx, dy, height, width, window){
-    allClients = Object.values(workspace.clients);
+    allClients = Object.values(KWinComponents.Workspace.windows);
     clients = allClients.filter(c => WindowManager.shouldShowWindow(c));
     if (clients.length == 0) return;
 
     cardWidth = currentScreenWidth / 5;
     cardHeight = cardWidth / 1.68;
-    lastActiveClient = workspace.activeClient;
+    lastActiveClient = KWinComponents.Workspace.activeWindow;
 
     timer.setTimeout(function(){
-        const w = window ?? workspace.activeClient;
+        const w = window ?? KWinComponents.Workspace.activeWindow;
         if (w && w.internalId) snappedWindows.push(w.internalId);
         main.requestActivate();
         keyboardHandler.forceActiveFocus();
@@ -25,7 +25,7 @@ function delayedShowAssist(dx, dy, height, width, window){
 
     /// find current desktop background
     if (showDesktopBackground) {
-        const indexOfDesktopWindow = allClients.findIndex((c) => c.desktopWindow && c.screen === workspace.activeScreen);
+        const indexOfDesktopWindow = allClients.findIndex((c) => c.desktopWindow && c.output === KWinComponents.Workspace.activeScreen);
         if (indexOfDesktopWindow < 0) return;
         desktopWindowId = allClients[indexOfDesktopWindow].internalId;
     }
@@ -94,7 +94,7 @@ function actuallyHideAssist(shouldFocusLastClient){
 
     /// gets called when assist closed without selecting item
     if (shouldFocusLastClient == true) {
-        if(lastActiveClient) workspace.activeClient = lastActiveClient;
+        if(lastActiveClient) KWinComponents.Workspace.activeWindow = lastActiveClient;
         finishSnap(true);
     }
 }
