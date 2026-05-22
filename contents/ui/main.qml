@@ -22,9 +22,15 @@ import "./code/windows.js" as WindowManager
 
 Window {
     id: main
-    flags: Qt.FramelessWindowHint | Qt.X11BypassWindowManagerHint
+    /// X11BypassWindowManagerHint kept Qt focus out of this window on Wayland,
+    /// breaking the keyboardHandler. Use Qt.Tool instead — frameless, on top,
+    /// no taskbar entry, but still in KWin's focus chain so Keys.onPressed
+    /// (Esc/arrows/Enter/Tab) reaches the script.
+    flags: Qt.FramelessWindowHint | Qt.Tool | Qt.WindowStaysOnTopHint
     visible: true
-    /// The backdrop Rectangle inside mainWindow provides the visible fill.
+    /// Transparent — the backdrop Rectangle inside provides the chooser's
+    /// visible fill. The original "#50ff0000" was a development debug color
+    /// that only stayed invisible while immersive mode covered everything.
     color: "transparent"
     x: 0
     y: 0
@@ -455,10 +461,13 @@ Window {
         colorGroup: SystemPalette.Active
     }
 
-    /// Window-level Esc handler — works even if keyboardHandler hasn't grabbed
-    /// active focus (e.g. after clicking the close/layout buttons).
+    /// Esc closes the assist regardless of which sub-element has focus.
+    /// ApplicationShortcut context is needed because `main` uses
+    /// X11BypassWindowManagerHint — it never receives a Qt window-focus event,
+    /// so the default WindowShortcut context would never fire.
     Shortcut {
         sequences: ["Esc"]
+        context: Qt.ApplicationShortcut
         enabled: activated
         onActivated: AssistManager.hideAssist(true)
     }
