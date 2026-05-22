@@ -3,7 +3,7 @@ import QtQuick.Controls 2.12
 import org.kde.plasma.components 3.0 as PlasmaComponents
 
 PlasmaComponents.Button {
-        x: mainWindow.width - 50
+        x: mainWindow.width - 72
         height: 30
         width: 30
         visible: true

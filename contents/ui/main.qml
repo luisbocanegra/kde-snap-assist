@@ -343,7 +343,7 @@ Window {
         /// Close assist button
         CornerButton {
             id: closeButton
-            y: 20
+            y: 36
             icon.name: "window-close"
             ToolTip.text: qsTr("Close snap assist (Esc)")
             onClicked: AssistManager.hideAssist(true);
@@ -352,7 +352,7 @@ Window {
         /// Change layout button
         CornerButton {
             id: changeSizeButton
-            y: 60
+            y: 76
 
             Image {
                 anchors.centerIn: parent
@@ -452,6 +452,14 @@ Window {
     SystemPalette {
         id: activePalette
         colorGroup: SystemPalette.Active
+    }
+
+    /// Window-level Esc handler — works even if keyboardHandler hasn't grabbed
+    /// active focus (e.g. after clicking the close/layout buttons).
+    Shortcut {
+        sequences: ["Esc"]
+        enabled: activated
+        onActivated: AssistManager.hideAssist(true)
     }
 
     /// Keyboard handler
