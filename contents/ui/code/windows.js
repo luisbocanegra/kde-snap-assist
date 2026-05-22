@@ -45,22 +45,26 @@ function selectClient(client){
     if (rememberWindowSizes)
         windowSizesBeforeSnap[client.internalId] = { height: client.height, width: client.width };
 
-    client.frameGeometry = immersiveMode ? Qt.rect(
-        mainWindow.x - (assistPadding / 2) + minDx,
-        mainWindow.y - (assistPadding / 2) + minDy,
-        mainWindow.width + assistPadding,
-        mainWindow.height + assistPadding
-    ) : Qt.rect(
-        main.x - (assistPadding / 2),
-        main.y - (assistPadding / 2),
-        main.width + assistPadding,
-        main.height + assistPadding
-    );
-
-    /// If onTileChanged matched a target Tile, hand placement off to KWin's
-    /// tile system. Tile.manage() applies tile padding & work-area clamping.
-    if (currentTargetTile && currentTargetTile.manage) {
-        currentTargetTile.manage(client);
+    if (currentTargetTile) {
+        /// Assign the tile and let KWin position the window via its internal
+        /// tile system. The setter (setTileCompatibility) triggers a
+        /// moveResize to windowGeometry (= absolute bounds inset by padding).
+        /// Setting frameGeometry first would lock the window flush against
+        /// the bounds and skip the padding step entirely.
+        client.tile = currentTargetTile;
+    } else {
+        /// Fallback when no tile matched: place via raw frameGeometry.
+        client.frameGeometry = immersiveMode ? Qt.rect(
+            mainWindow.x - (assistPadding / 2) + minDx,
+            mainWindow.y - (assistPadding / 2) + minDy,
+            mainWindow.width + assistPadding,
+            mainWindow.height + assistPadding
+        ) : Qt.rect(
+            main.x - (assistPadding / 2),
+            main.y - (assistPadding / 2),
+            main.width + assistPadding,
+            main.height + assistPadding
+        );
     }
 }
 
@@ -316,36 +320,12 @@ function onTileChanged(window) {
     currentScreenWidth = Math.floor(maxArea.width); currentScreenHeight = Math.floor(maxArea.height);
     minDx = Math.ceil(maxArea.x); minDy = Math.ceil(maxArea.y);
 
-    /// Occupied region = bounding-box union of tile.geometry and window.frameGeometry,
-    /// clipped to work area. Neither alone is reliable on Plasma 6.6.
-    const _tg = tile.absoluteGeometryInScreen || tile.absoluteGeometry;
-    const _fg = window.frameGeometry;
-    let occX0, occY0, occX1, occY1;
-    if (_tg && _fg) {
-        occX0 = Math.min(_tg.x, _fg.x); occY0 = Math.min(_tg.y, _fg.y);
-        occX1 = Math.max(_tg.x + _tg.width,  _fg.x + _fg.width);
-        occY1 = Math.max(_tg.y + _tg.height, _fg.y + _fg.height);
-    } else {
-        const g = _fg || _tg;
-        occX0 = g.x; occY0 = g.y; occX1 = g.x + g.width; occY1 = g.y + g.height;
-    }
     const wx0 = maxArea.x, wy0 = maxArea.y;
     const wx1 = maxArea.x + maxArea.width, wy1 = maxArea.y + maxArea.height;
-    occX0 = Math.max(occX0, wx0); occY0 = Math.max(occY0, wy0);
-    occX1 = Math.min(occX1, wx1); occY1 = Math.min(occY1, wy1);
 
-    /// Up to 4 strips around the occupied rect.
-    const strips = [];
-    if (occY0 > wy0) strips.push({ x: wx0, y: wy0, width: wx1 - wx0, height: occY0 - wy0 });
-    if (occY1 < wy1) strips.push({ x: wx0, y: occY1, width: wx1 - wx0, height: wy1 - occY1 });
-    if (occX0 > wx0) strips.push({ x: wx0, y: occY0, width: occX0 - wx0, height: occY1 - occY0 });
-    if (occX1 < wx1) strips.push({ x: occX1, y: occY0, width: wx1 - occX1, height: occY1 - occY0 });
-
-    function _rectsEqual(a, b) {
-        const tol = 4;
-        return Math.abs(a.x - b.x) <= tol && Math.abs(a.y - b.y) <= tol &&
-               Math.abs(a.width  - b.width)  <= tol &&
-               Math.abs(a.height - b.height) <= tol;
+    function _rectsOverlap(a, b) {
+        return !(a.x + a.width  <= b.x || a.x >= b.x + b.width ||
+                 a.y + a.height <= b.y || a.y >= b.y + b.height);
     }
     function _tileIsEmpty(t) {
         if (t.windows && t.windows.length > 0) return false;
@@ -356,31 +336,86 @@ function onTileChanged(window) {
         }
         return true;
     }
-    function _findTileMatching(root, target) {
-        if (!root) return null;
-        if (_tileIsEmpty(root)) {
-            const g = root.absoluteGeometryInScreen || root.absoluteGeometry;
-            if (g && _rectsEqual(g, target)) return root;
-        }
-        if (root.tiles) {
-            for (let i = 0; i < root.tiles.length; i++) {
-                const m = _findTileMatching(root.tiles[i], target);
-                if (m) return m;
+
+    /// "Occupied region" = bounding-box union of tile.geometry and window.frameGeometry.
+    const _tg = tile.absoluteGeometryInScreen || tile.absoluteGeometry;
+    const _fg = window.frameGeometry;
+    let occRect;
+    if (_tg && _fg) {
+        const x0 = Math.min(_tg.x, _fg.x), y0 = Math.min(_tg.y, _fg.y);
+        const x1 = Math.max(_tg.x + _tg.width,  _fg.x + _fg.width);
+        const y1 = Math.max(_tg.y + _tg.height, _fg.y + _fg.height);
+        occRect = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+    } else {
+        occRect = _fg || _tg;
+    }
+
+    /// Decide which strategy to use:
+    ///  - If the dropped tile has clean non-overlapping siblings (typical
+    ///    custom tile layouts), iterate parent.tiles directly so each sibling
+    ///    becomes its own chooser entry with its own Tile reference. This is
+    ///    what lets KWin's tile system apply padding when the user picks one.
+    ///  - Otherwise (Plasma's quick-tile tree where halves/corners/strips all
+    ///    overlap), compute the empty region geometrically as work-area minus
+    ///    the dropped window's frame.
+    const parent = tile.parent;
+    const siblings = parent && parent.tiles;
+    let useTileTree = false;
+    if (parent && siblings && siblings.length >= 2) {
+        useTileTree = true;
+        outer: for (let i = 0; i < siblings.length; i++) {
+            const a = siblings[i].absoluteGeometryInScreen || siblings[i].absoluteGeometry;
+            if (!a) continue;
+            for (let j = i + 1; j < siblings.length; j++) {
+                const b = siblings[j].absoluteGeometryInScreen || siblings[j].absoluteGeometry;
+                if (b && _rectsOverlap(a, b)) { useTileTree = false; break outer; }
             }
         }
-        return null;
     }
-    const searchRoot = tile.parent || tile;
 
     quatersToShowNext = {};
     let idx = 0;
-    for (const s of strips) {
-        const cx0 = Math.ceil(s.x), cy0 = Math.ceil(s.y);
-        const cx1 = Math.floor(s.x + s.width), cy1 = Math.floor(s.y + s.height);
-        if (cx1 <= cx0 || cy1 <= cy0) continue;
-        const rect = { x: cx0, y: cy0, width: cx1 - cx0, height: cy1 - cy0 };
-        const matched = _findTileMatching(searchRoot, rect);
-        quatersToShowNext[idx++] = { dx: rect.x, dy: rect.y, width: rect.width, height: rect.height, _tile: matched };
+
+    if (useTileTree) {
+        /// Iterate parent.tiles directly. We do NOT check overlap against the
+        /// dropped window's bounding box — useTileTree only triggers when
+        /// siblings are non-overlapping by definition, and KWin can place the
+        /// dropped window a hair outside its own tile (padding rounding) which
+        /// then erroneously filters a legitimate empty sibling.
+        for (let i = 0; i < siblings.length; i++) {
+            const sib = siblings[i];
+            if (sib === tile) continue;
+            if (!_tileIsEmpty(sib)) continue; /// don't suggest already-occupied tiles
+            const g = sib.absoluteGeometryInScreen || sib.absoluteGeometry;
+            if (!g) continue;
+            const cx0 = Math.ceil(Math.max(g.x, wx0));
+            const cy0 = Math.ceil(Math.max(g.y, wy0));
+            const cx1 = Math.floor(Math.min(g.x + g.width,  wx1));
+            const cy1 = Math.floor(Math.min(g.y + g.height, wy1));
+            if (cx1 <= cx0 || cy1 <= cy0) continue;
+            quatersToShowNext[idx++] = {
+                dx: cx0, dy: cy0, width: cx1 - cx0, height: cy1 - cy0, _tile: sib,
+            };
+        }
+    } else {
+        /// Geometric complement = work area minus the occupied rect (clipped).
+        const occX0 = Math.max(occRect.x, wx0);
+        const occY0 = Math.max(occRect.y, wy0);
+        const occX1 = Math.min(occRect.x + occRect.width,  wx1);
+        const occY1 = Math.min(occRect.y + occRect.height, wy1);
+        const strips = [];
+        if (occY0 > wy0) strips.push({ x: wx0, y: wy0, width: wx1 - wx0, height: occY0 - wy0 });
+        if (occY1 < wy1) strips.push({ x: wx0, y: occY1, width: wx1 - wx0, height: wy1 - occY1 });
+        if (occX0 > wx0) strips.push({ x: wx0, y: occY0, width: occX0 - wx0, height: occY1 - occY0 });
+        if (occX1 < wx1) strips.push({ x: occX1, y: occY0, width: wx1 - occX1, height: occY1 - occY0 });
+        for (const s of strips) {
+            const cx0 = Math.ceil(s.x), cy0 = Math.ceil(s.y);
+            const cx1 = Math.floor(s.x + s.width), cy1 = Math.floor(s.y + s.height);
+            if (cx1 <= cx0 || cy1 <= cy0) continue;
+            quatersToShowNext[idx++] = {
+                dx: cx0, dy: cy0, width: cx1 - cx0, height: cy1 - cy0, _tile: null,
+            };
+        }
     }
 
     if (idx === 0) return;
