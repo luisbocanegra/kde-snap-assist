@@ -24,7 +24,8 @@ Window {
     id: main
     flags: Qt.FramelessWindowHint | Qt.X11BypassWindowManagerHint
     visible: true
-    color: "#50ff0000"
+    /// The backdrop Rectangle inside mainWindow provides the visible fill.
+    color: "transparent"
     x: 0
     y: 0
     height: 1080//currentScreenHeight

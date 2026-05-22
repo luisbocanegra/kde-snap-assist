@@ -304,11 +304,14 @@ function onWindowResize(window) {
     }
 }
 
-/// Plasma 6 tile-aware snap detection. Triggered when a window enters/leaves a Tile.
-/// Strategy: compute empty regions geometrically (work area minus the snapped
-/// window's frame), then try to match each empty strip to a real Tile in the
-/// parent's subtree so we can use Tile.manage() for placement; otherwise fall
-/// back to plain frameGeometry placement.
+/// Plasma 6 tile-aware snap detection. Triggered when a window enters/leaves
+/// a Tile. Picks a strategy based on the parent's structure:
+///   - If sibling tiles don't overlap (typical custom layout), each empty
+///     sibling becomes its own chooser entry with its Tile reference, so
+///     placement runs through KWin's tile system and the tile padding is
+///     applied to the chosen window.
+///   - If siblings overlap (Plasma's quick-tile pseudo-tree), fall back to
+///     a geometric complement: work area minus the snapped window's frame.
 function onTileChanged(window) {
     if (activated || !window || window.deleted || window.specialWindow || !window.active) return;
     const tile = window.tile;
@@ -350,14 +353,8 @@ function onTileChanged(window) {
         occRect = _fg || _tg;
     }
 
-    /// Decide which strategy to use:
-    ///  - If the dropped tile has clean non-overlapping siblings (typical
-    ///    custom tile layouts), iterate parent.tiles directly so each sibling
-    ///    becomes its own chooser entry with its own Tile reference. This is
-    ///    what lets KWin's tile system apply padding when the user picks one.
-    ///  - Otherwise (Plasma's quick-tile tree where halves/corners/strips all
-    ///    overlap), compute the empty region geometrically as work-area minus
-    ///    the dropped window's frame.
+    /// Strategy switch: tile-tree iteration if siblings are clean, otherwise
+    /// geometric complement (see function header for rationale).
     const parent = tile.parent;
     const siblings = parent && parent.tiles;
     let useTileTree = false;
