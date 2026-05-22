@@ -232,16 +232,29 @@ Window {
                 }
             }
 
-            Grid {
-                id: gridView
-                /// Dynamic columns: cap at how many cards physically fit at the current
-                /// cardWidth. Min 1 so we always have a column even in tiny tiles.
-                columns: Math.max(1, Math.min(columnsCount,
-                    Math.floor((scrollView.width + gridSpacing) / (cardWidth + gridSpacing))))
-                spacing: gridSpacing
-                anchors.horizontalCenter: parent.horizontalCenter
+            /// Wrapper item that fills the ScrollView's viewport. Without this the
+            /// Grid is the contentItem and sizes to its own children, so
+            /// anchors.horizontalCenter has nothing wider to center against and
+            /// cards end up flush-left when there are fewer items than columns.
+            Item {
+                id: gridContainer
+                width: scrollView.width
+                height: gridView.height
+                implicitHeight: gridView.implicitHeight
 
-                Repeater {
+                Grid {
+                    id: gridView
+                    /// Cap columns by (a) the requested layout count, (b) what
+                    /// physically fits at cardWidth, (c) the actual candidate count
+                    /// so a single card doesn't get pushed into a multi-column slot.
+                    columns: Math.max(1, Math.min(
+                        clients ? clients.length : 1,
+                        Math.min(columnsCount,
+                            Math.floor((scrollView.width + gridSpacing) / (cardWidth + gridSpacing)))))
+                    spacing: gridSpacing
+                    anchors.horizontalCenter: parent.horizontalCenter
+
+                    Repeater {
                     id: clientsRepeater
                     model: clients
 
@@ -323,6 +336,7 @@ Window {
                             Behavior on opacity { PropertyAnimation {duration: transitionDuration } }
                         }
                     }
+                }
             }
         }
 
