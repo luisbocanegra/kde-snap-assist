@@ -71,6 +71,7 @@ Window {
     property int layoutMode: 0 /// 0 - horizontal halve, 1 - quater, 2 - vertical halve
     property var storedQuaterPosition: ({}) /// store initial quater position for Tab button switching
     property var storedFirstQuaterToShow: ({}) /// store planned first quater for Tab button switching
+    property var currentTargetTile: null /// Plasma 6 Tile to assign the next selected window to (set by checkToShowNextQuaterAssist)
 
     /// configurable
     property int transitionDuration
@@ -127,6 +128,8 @@ Window {
 
     Component.onCompleted: {
         loadConfigs();
+        /// DeclarativeScriptWorkspaceWrapper exposes `windows` as a QQmlListProperty;
+        /// `windowList()` only exists on the legacy QtScript wrapper and throws here.
         const windows = KWinComponents.Workspace.windows;
         for (let i = 0; i < windows.length; ++i) {
             WindowManager.addListenersToClient(windows[i]);
@@ -210,13 +213,17 @@ Window {
             id: scrollView
             anchors.centerIn: parent
             height: gridView.height > mainWindow.height * 0.95 ? mainWindow.height * 0.95 : gridView.height
-            width: columnsCount * (cardWidth + gridSpacing)
+            /// Cap to chooser area so the grid never spills out of a narrow tile.
+            width: Math.min(columnsCount * (cardWidth + gridSpacing), mainWindow.width - gridSpacing)
 
             Grid {
                 id: gridView
-                columns: columnsCount
+                /// Dynamic columns: cap at how many cards physically fit at the current
+                /// cardWidth. Min 1 so we always have a column even in tiny tiles.
+                columns: Math.max(1, Math.min(columnsCount,
+                    Math.floor((scrollView.width + gridSpacing) / (cardWidth + gridSpacing))))
                 spacing: gridSpacing
-                anchors.centerIn: parent
+                anchors.horizontalCenter: parent.horizontalCenter
 
                 Repeater {
                     id: clientsRepeater

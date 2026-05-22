@@ -1,10 +1,17 @@
 /// assist
 function delayedShowAssist(dx, dy, height, width, window){
-    allClients = Object.values(KWinComponents.Workspace.windows);
+    /// Workspace.windows is a QQmlListProperty (.length + numeric index access),
+    /// not a real array — Object.values() returns [] for it. Iterate by index.
+    const _ws = KWinComponents.Workspace.windows;
+    allClients = [];
+    for (let i = 0; i < _ws.length; ++i) allClients.push(_ws[i]);
     clients = allClients.filter(c => WindowManager.shouldShowWindow(c));
     if (clients.length == 0) return;
 
-    cardWidth = currentScreenWidth / 5;
+    /// Cap card width to fit inside the chooser. Otherwise a single card spills
+    /// out of narrow tiles (e.g. a 25%-wide custom tile).
+    const _chooserW = width || (currentScreenWidth - (window ? window.width : 0));
+    cardWidth = Math.min(currentScreenWidth / 5, Math.max(80, _chooserW - gridSpacing * 2));
     cardHeight = cardWidth / 1.68;
     lastActiveClient = KWinComponents.Workspace.activeWindow;
 
@@ -116,6 +123,7 @@ function finishSnap(success){
     visibleWindowPreviews = [];
     quatersToShowNext = {};
     lastActiveClient = null;
+    currentTargetTile = null;
 }
 
 
@@ -130,6 +138,7 @@ function checkToShowNextQuaterAssist(lastSelectedClient){
         const nextQuater = quatersToShowNext[keys[0]];
         delete quatersToShowNext[keys[0]];
         if (layoutMode !== 3) columnsCount = 2;
+        currentTargetTile = nextQuater._tile || null;
         delayedShowAssist(nextQuater.dx, nextQuater.dy, nextQuater.height, nextQuater.width);
         if (lastSelectedClient) lastActiveClient = lastSelectedClient;
         return true;

@@ -56,6 +56,12 @@ function selectClient(client){
         main.width + assistPadding,
         main.height + assistPadding
     );
+
+    /// If onTileChanged matched a target Tile, hand placement off to KWin's
+    /// tile system. Tile.manage() applies tile padding & work-area clamping.
+    if (currentTargetTile && currentTargetTile.manage) {
+        currentTargetTile.manage(client);
+    }
 }
 
 function onClientSelect(client){
@@ -76,7 +82,6 @@ function addListenersToClient(client) {
 
     client.frameGeometryChanged.connect(function() {
         if (!client.move && !client.resize && activated == false && preventFromShowing == false) {
-            console.error("addListenersToClient -> frameGeometryChanged")
             if (delayBeforeShowingAssist == 0) {
                 onWindowResize(client);
             } else {
@@ -86,6 +91,35 @@ function addListenersToClient(client) {
             }
         }
     });
+
+    /// Plasma 6: the QML `tile` property's NOTIFY (`tileChanged`) only fires when
+    /// the committed tile changes, but Shift+drag drops set `requestedTile` —
+    /// which doesn't trigger `tileChanged`. interactiveMoveResizeFinished is the
+    /// reliable hook: after drag ends, if window.tile is set, the window was
+    /// dropped into a tile.
+    if (client.interactiveMoveResizeFinished) {
+        client.interactiveMoveResizeFinished.connect(function(){
+            if (activated || preventFromShowing) return;
+            if (!client.tile) return; /// not dropped into a tile
+            if (delayBeforeShowingAssist == 0) {
+                onTileChanged(client);
+            } else {
+                timer.setTimeout(function(){ onTileChanged(client); }, delayBeforeShowingAssist);
+            }
+        });
+    }
+
+    /// Fallback: still wire tileChanged in case some KWin paths emit it.
+    if (client.tileChanged) {
+        client.tileChanged.connect(function() {
+            if (activated || preventFromShowing) return;
+            if (delayBeforeShowingAssist == 0) {
+                onTileChanged(client);
+            } else {
+                timer.setTimeout(function(){ onTileChanged(client); }, delayBeforeShowingAssist);
+            }
+        });
+    }
 
     client.interactiveMoveResizeStarted.connect(function(){
         if (trackSnappedWindows && !client.resize)
@@ -143,17 +177,18 @@ function addListenersToClient(client) {
 }
 
 function onWindowResize(window) {
-    console.error("console.error", window)
-    // print("print", window)
     if (activated || !window || window.deleted || window.specialWindow || !window.active) return;
+    /// On Plasma 6, snaps assign a tile object — let onTileChanged handle those.
+    if (window.tile) return;
     AssistManager.finishSnap(false); /// make sure we cleared all variables
 
     /// don't show assist if window could be fit in the group behind
     if (fitWindowInGroupBehind && windowFitsInSnapGroup(window)) return;
     const maxArea = KWinComponents.Workspace.clientArea(KWin.MaximizeArea, window);
-    console.error(maxArea.x,maxArea.y,maxArea.width,maxArea.height)
-    currentScreenWidth = maxArea.width; currentScreenHeight = maxArea.height;
-    minDx = maxArea.x; minDy = maxArea.y;
+    /// Ceil work-area origin so fractional scaling doesn't shave a pixel off
+    /// the placed window (would otherwise sit under the panel).
+    currentScreenWidth = Math.floor(maxArea.width); currentScreenHeight = Math.floor(maxArea.height);
+    minDx = Math.ceil(maxArea.x); minDy = Math.ceil(maxArea.y);
     const dx = window.x, dy = window.y;
     const width = window.width, height = window.height;
     const halfScreenWidth = currentScreenWidth / 2, halfScreenHeight = currentScreenHeight / 2;
@@ -263,6 +298,97 @@ function onWindowResize(window) {
         cardWidth *= 1.2;
         cardHeight *= 1.2;
     }
+}
+
+/// Plasma 6 tile-aware snap detection. Triggered when a window enters/leaves a Tile.
+/// Strategy: compute empty regions geometrically (work area minus the snapped
+/// window's frame), then try to match each empty strip to a real Tile in the
+/// parent's subtree so we can use Tile.manage() for placement; otherwise fall
+/// back to plain frameGeometry placement.
+function onTileChanged(window) {
+    if (activated || !window || window.deleted || window.specialWindow || !window.active) return;
+    const tile = window.tile;
+    if (!tile) return;
+
+    AssistManager.finishSnap(false);
+
+    const maxArea = KWinComponents.Workspace.clientArea(KWin.MaximizeArea, window);
+    currentScreenWidth = Math.floor(maxArea.width); currentScreenHeight = Math.floor(maxArea.height);
+    minDx = Math.ceil(maxArea.x); minDy = Math.ceil(maxArea.y);
+
+    /// Occupied region = bounding-box union of tile.geometry and window.frameGeometry,
+    /// clipped to work area. Neither alone is reliable on Plasma 6.6.
+    const _tg = tile.absoluteGeometryInScreen || tile.absoluteGeometry;
+    const _fg = window.frameGeometry;
+    let occX0, occY0, occX1, occY1;
+    if (_tg && _fg) {
+        occX0 = Math.min(_tg.x, _fg.x); occY0 = Math.min(_tg.y, _fg.y);
+        occX1 = Math.max(_tg.x + _tg.width,  _fg.x + _fg.width);
+        occY1 = Math.max(_tg.y + _tg.height, _fg.y + _fg.height);
+    } else {
+        const g = _fg || _tg;
+        occX0 = g.x; occY0 = g.y; occX1 = g.x + g.width; occY1 = g.y + g.height;
+    }
+    const wx0 = maxArea.x, wy0 = maxArea.y;
+    const wx1 = maxArea.x + maxArea.width, wy1 = maxArea.y + maxArea.height;
+    occX0 = Math.max(occX0, wx0); occY0 = Math.max(occY0, wy0);
+    occX1 = Math.min(occX1, wx1); occY1 = Math.min(occY1, wy1);
+
+    /// Up to 4 strips around the occupied rect.
+    const strips = [];
+    if (occY0 > wy0) strips.push({ x: wx0, y: wy0, width: wx1 - wx0, height: occY0 - wy0 });
+    if (occY1 < wy1) strips.push({ x: wx0, y: occY1, width: wx1 - wx0, height: wy1 - occY1 });
+    if (occX0 > wx0) strips.push({ x: wx0, y: occY0, width: occX0 - wx0, height: occY1 - occY0 });
+    if (occX1 < wx1) strips.push({ x: occX1, y: occY0, width: wx1 - occX1, height: occY1 - occY0 });
+
+    function _rectsEqual(a, b) {
+        const tol = 4;
+        return Math.abs(a.x - b.x) <= tol && Math.abs(a.y - b.y) <= tol &&
+               Math.abs(a.width  - b.width)  <= tol &&
+               Math.abs(a.height - b.height) <= tol;
+    }
+    function _tileIsEmpty(t) {
+        if (t.windows && t.windows.length > 0) return false;
+        if (t.tiles && t.tiles.length > 0) {
+            for (let i = 0; i < t.tiles.length; i++) {
+                if (!_tileIsEmpty(t.tiles[i])) return false;
+            }
+        }
+        return true;
+    }
+    function _findTileMatching(root, target) {
+        if (!root) return null;
+        if (_tileIsEmpty(root)) {
+            const g = root.absoluteGeometryInScreen || root.absoluteGeometry;
+            if (g && _rectsEqual(g, target)) return root;
+        }
+        if (root.tiles) {
+            for (let i = 0; i < root.tiles.length; i++) {
+                const m = _findTileMatching(root.tiles[i], target);
+                if (m) return m;
+            }
+        }
+        return null;
+    }
+    const searchRoot = tile.parent || tile;
+
+    quatersToShowNext = {};
+    let idx = 0;
+    for (const s of strips) {
+        const cx0 = Math.ceil(s.x), cy0 = Math.ceil(s.y);
+        const cx1 = Math.floor(s.x + s.width), cy1 = Math.floor(s.y + s.height);
+        if (cx1 <= cx0 || cy1 <= cy0) continue;
+        const rect = { x: cx0, y: cy0, width: cx1 - cx0, height: cy1 - cy0 };
+        const matched = _findTileMatching(searchRoot, rect);
+        quatersToShowNext[idx++] = { dx: rect.x, dy: rect.y, width: rect.width, height: rect.height, _tile: matched };
+    }
+
+    if (idx === 0) return;
+
+    filteredClients.push(window);
+    layoutMode = 1;
+    columnsCount = 2;
+    AssistManager.checkToShowNextQuaterAssist(window);
 }
 
 function handleWindowFocus(window) {
@@ -472,13 +598,18 @@ function isEqual(a, b) {
 
 function getClientFromId(windowId){
     //return workspace.getClient(windowId); /// doesn't work on Wayland
-    if (!allClients) allClients = Object.values(KWinComponents.Workspace.windows);
+    if (!allClients) {
+        const _ws = KWinComponents.Workspace.windows;
+        allClients = [];
+        for (let i = 0; i < _ws.length; ++i) allClients.push(_ws[i]);
+    }
     return allClients.find((el) => el.internalId == windowId);
 }
 
 function shouldShowWindow(client) {
     if (filteredClients.includes(client)) return false;
     if (client.active || client.specialWindow) return false;
+    if (client.skipTaskbar || client.skipSwitcher || client.skipPager) return false;
     if (!showMinimizedWindows && client.minimized) return false;
     if (!showOtherScreensWindows && client.output !== KWinComponents.Workspace.activeScreen) return false;
     if (!showOtherDesktopsWindows && !client.desktops.length || !client.desktops.includes(KWinComponents.Workspace.currentDesktop)) return false;
