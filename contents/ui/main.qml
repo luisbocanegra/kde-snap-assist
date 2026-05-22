@@ -216,6 +216,22 @@ Window {
             /// Cap to chooser area so the grid never spills out of a narrow tile.
             width: Math.min(columnsCount * (cardWidth + gridSpacing), mainWindow.width - gridSpacing)
 
+            /// Faster mouse-wheel scrolling. ScrollView's default is ~20px/notch,
+            /// which is sluggish in long card lists. Bump to roughly one card per
+            /// notch (cardHeight + gridSpacing).
+            WheelHandler {
+                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                onWheel: (event) => {
+                    const fl = scrollView.contentItem;
+                    if (!fl || fl.contentHeight <= fl.height) return;
+                    const step = (cardHeight + gridSpacing) || 120;
+                    const dy = -event.angleDelta.y / 120 * step;
+                    const maxY = fl.contentHeight - fl.height;
+                    fl.contentY = Math.max(0, Math.min(maxY, fl.contentY + dy));
+                    event.accepted = true;
+                }
+            }
+
             Grid {
                 id: gridView
                 /// Dynamic columns: cap at how many cards physically fit at the current
