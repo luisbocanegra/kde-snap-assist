@@ -19,7 +19,7 @@ function delayedShowAssist(dx, dy, height, width, window){
     if (sortByLastActive) WindowManager.sortClientsByLastActive();
     if (immersiveMode && filteredClients.length <= 1) {
         visibleWindowPreviews = clients;
-        notificationPreviews = allClients.filter(c => c.notification);
+        notificationPreviews = allClients.filter(c => c.windowType === 12);
     }
     if (descendingOrder) clients = clients.reverse();
 

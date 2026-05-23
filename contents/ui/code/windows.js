@@ -72,7 +72,7 @@ function onClientSelect(client){
 
 /// listeners
 function addListenersToClient(client) {
-    if (!client || client.specialWindow || client.skipSwitcher) return;
+    if (!client || client.skipSwitcher) return;
 
     client.frameGeometryChanged.connect(function() {
         if (!client.move && !client.resize && activated == false && preventFromShowing == false) {
@@ -103,7 +103,7 @@ function addListenersToClient(client) {
         }
     });
 
-    client.closed.connect(function(window){
+    client.closed.connect(function(){
         handleWindowClose(client);
     });
 
@@ -111,9 +111,9 @@ function addListenersToClient(client) {
         if (trackSnappedWindows && !client.resize) removeWindowFromTrack(client.internalId);
     });
 
-    client.minimizedChanged.connect(function (cl) {
+    client.minimizedChanged.connect(function () {
         if (!trackSnappedWindows || !minimizeSnappedTogether) return;
-        if (cl.minimized) {
+        if (client.minimized) {
             WindowManager.applyActionToAssosiatedSnapGroup(client, function(cl){ if (cl) cl.minimized = true; });
         } else {
             WindowManager.applyActionToAssosiatedSnapGroup(client, function(cl) {
@@ -145,7 +145,7 @@ function addListenersToClient(client) {
 function onWindowResize(window) {
     console.error("console.error", window)
     // print("print", window)
-    if (activated || !window || window.deleted || window.specialWindow || !window.active) return;
+    if (activated || !window || window.skipSwitcher || !window.active) return;
     AssistManager.finishSnap(false); /// make sure we cleared all variables
 
     /// don't show assist if window could be fit in the group behind
@@ -301,7 +301,7 @@ function handleWindowFocus(window) {
 }
 
 function handleWindowClose(window){
-    if (!window || window.specialWindow) return;
+    if (!window) return;
     if (trackActiveWindows) delete activationTime[window.internalId];
     if (rememberWindowSizes) delete windowSizesBeforeSnap[window.internalId];
 
